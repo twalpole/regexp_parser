@@ -438,6 +438,26 @@ class Regexp::Parser
     target_node || raise(ArgumentError, 'No valid target found for '\
                                         "'#{token.text}' ")
 
+    # wrap target in implicit passive group in case of chained quantifiers
+    # c.f. https://github.com/ammar/regexp_parser/issues/3
+    if target_node.quantified?
+      new_group = Group::Passive.new(Regexp::Token.new(
+        :group,
+        :passive,
+        '', # text
+        target_node.ts,
+        target_node.ts, # te
+        target_node.level,
+        target_node.set_level,
+        target_node.conditional_level
+      ), active_opts)
+      new_group.implicit = true
+      new_group << target_node
+      increase_level(target_node)
+      node.expressions[offset] = new_group
+      target_node = new_group
+    end
+
     case token.token
     when :zero_or_one
       target_node.quantify(:zero_or_one, token.text, 0, 1, :greedy)
@@ -466,6 +486,11 @@ class Regexp::Parser
     else
       raise UnknownTokenError.new('Quantifier', token)
     end
+  end
+
+  def increase_level(exp)
+    exp.level += 1
+    exp.respond_to?(:each) && exp.each { |subexp| increase_level(subexp) }
   end
 
   def interval(target_node, token)
